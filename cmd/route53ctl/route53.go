@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -37,6 +39,17 @@ func listRecords(svc *route53.Client, hostedZoneID *string) []types.ResourceReco
 		rrsList = append(rrsList, page.ResourceRecordSets...)
 	}
 	return rrsList
+}
+
+func filterUserRecords(sets []types.ResourceRecordSet) []types.ResourceRecordSet {
+	var list []types.ResourceRecordSet
+	for _, rrs := range sets {
+		if nonDeletable(rrs) {
+			continue // skip non-user records
+		}
+		list = append(list, rrs)
+	}
+	return list
 }
 
 func nonDeletable(rrs types.ResourceRecordSet) bool {
@@ -144,12 +157,13 @@ func deleteHostedZone(svc *route53.Client, dry bool, zone types.HostedZone) {
 }
 
 func pickZone(zoneList []types.HostedZone, zoneName,
-	zoneID string) types.HostedZone {
-
+	zoneID string) (types.HostedZone, error) {
 	const me = "pickZone"
 
+	var z types.HostedZone
+
 	if len(zoneList) < 1 {
-		log.Fatalf("%s: there is no zone", me)
+		return z, fmt.Errorf("%s: there is no zone in route53", me)
 	}
 
 	if zoneID != "" {
@@ -157,10 +171,10 @@ func pickZone(zoneList []types.HostedZone, zoneName,
 		for _, zone := range zoneList {
 			wantedID := "/hostedzone/" + zoneID
 			if aws.ToString(zone.Id) == wantedID {
-				return zone
+				return zone, nil
 			}
 		}
-		log.Fatalf("%s: zone not found by zoneID: zoneName=%s zoneID=%s",
+		return z, fmt.Errorf("%s: zone not found by zoneID: zoneName=%s zoneID=%s",
 			me, zoneName, zoneID)
 	}
 
@@ -185,23 +199,85 @@ func pickZone(zoneList []types.HostedZone, zoneName,
 	}
 
 	if len(foundByName) == 1 {
-		return foundByName[0]
+		return foundByName[0], nil
 	}
 
 	if len(foundByName) == 0 {
-		log.Fatalf("%s: no zone not found by zoneName: zoneName=%s zoneID=%s",
+		return z, fmt.Errorf("%s: no zone found by zoneName: zoneName=%s zoneID=%s",
 			me, zoneName, zoneID)
-		return types.HostedZone{}
 	}
 
 	if zoneID == "" {
-		log.Fatalf("%s: found %d zone(s) by name, please supply zoneID",
+		return z, fmt.Errorf("%s: found %d zone(s) by name, please supply zoneID",
 			me, len(foundByName))
 	}
 
-	log.Fatalf("%s: zone not found: zoneName=%s zoneID=%s",
+	return z, fmt.Errorf("%s: zone not found: zoneName=%s zoneID=%s",
 		me, zoneName, zoneID)
-	return types.HostedZone{}
+}
+
+func mustPickZone(zoneList []types.HostedZone, zoneName,
+	zoneID string) types.HostedZone {
+	z, err := pickZone(zoneList, zoneName, zoneID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return z
+}
+
+func pickOrCreateZone(svc *route53.Client, dry bool, zoneList []types.HostedZone,
+	zoneName, zoneID, vpcID, vpcRegion string) types.HostedZone {
+
+	z, err := pickZone(zoneList, zoneName, zoneID)
+	if err == nil {
+		return z
+	}
+
+	return createZone(svc, dry, zoneName, vpcID, vpcRegion)
+}
+
+func createZone(svc *route53.Client, dry bool, zoneName, vpcID, vpcRegion string) types.HostedZone {
+
+	const me = "createZone"
+
+	if vpcID == "" {
+		log.Fatalf("%s: vpcID is required", me)
+	}
+
+	if vpcRegion == "" {
+		log.Fatalf("%s: vpcRegion is required", me)
+	}
+
+	now := time.Now().String()
+
+	vpc := types.VPC{
+		VPCId:     aws.String(vpcID),
+		VPCRegion: types.VPCRegion(vpcRegion),
+	}
+
+	input := &route53.CreateHostedZoneInput{
+		CallerReference: aws.String(now),
+		Name:            aws.String(zoneName),
+		VPC:             &vpc,
+	}
+
+	var out *route53.CreateHostedZoneOutput
+	var err error
+
+	if dry {
+		err = errors.New("dry run prevented zone creation ")
+	} else {
+		out, err = svc.CreateHostedZone(context.TODO(), input)
+	}
+
+	if err != nil {
+		log.Fatalf("%s: zoneName=%s error: %v", me, zoneName, err)
+	}
+
+	log.Printf("%s: zone created: zoneName=%s vpcID=%s vpcRegion=%s zoneID=%s",
+		me, zoneName, vpcID, vpcRegion, aws.ToString(out.HostedZone.Id))
+
+	return *out.HostedZone
 }
 
 func listZones(svc *route53.Client) []types.HostedZone {

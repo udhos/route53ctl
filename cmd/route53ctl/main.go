@@ -14,6 +14,7 @@ func main() {
 	var zoneName string
 	var zoneID string
 	var vpcID string
+	var vpcRegion string
 	var purge bool
 	var dry bool
 	var rules []string
@@ -21,9 +22,10 @@ func main() {
 	flag.StringVar(&zoneName, "zone", "", "Zone name")
 	flag.StringVar(&zoneID, "zoneID", "", "Zone ID (only needed if zone name is ambiguous)")
 	flag.StringVar(&vpcID, "vpc", "", "VPC ID")
+	flag.StringVar(&vpcRegion, "region", "sa-east-1", "VPC region")
 	flag.BoolVar(&purge, "purge", false, "Purge zone")
 	flag.BoolVar(&dry, "dry", true, "Dry run")
-	flag.Func("rule", "Add rule: -rule weight:ip:IP1,IP2,IP3 OR -rule weight:vpce:hostname",
+	flag.Func("rule", "Add rule: -rule weight:ip:IP1,IP2,... OR -rule weight:vpce:hostname",
 		func(s string) error {
 			rules = append(rules, s)
 			return nil
@@ -32,27 +34,48 @@ func main() {
 	flag.Parse()
 
 	if zoneName != "" && !strings.HasSuffix(zoneName, ".") {
-		zoneName = zoneName + "."
+		zoneName += "."
 	}
 
 	switch {
 	case purge:
 		purgeZone(dry, zoneName, zoneID)
 	default:
-		setZone(dry, zoneName, zoneID, vpcID, rules)
+		setZone(dry, zoneName, zoneID, vpcID, vpcRegion, rules)
 	}
 }
 
-func setZone(dry bool, zoneName, zoneID, vpcID string, rules []string) {
+func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string, rules []string) {
 	const me = "setZone"
 
-	log.Printf("%s: dry=%t zoneName=%s zoneID=%s vpcID=%s rules=%s",
-		me, dry, zoneName, zoneID, vpcID, rules)
+	log.Printf("%s: dry=%t zoneName=%s zoneID=%s vpcID=%s vpcRegion=%s rules=%s",
+		me, dry, zoneName, zoneID, vpcID, vpcRegion, rules)
 
-	if len(rules) != 2 {
-		log.Fatalf("%s: exactly two rules are required, but got %d: %s",
-			me, len(rules), rules)
+	if len(rules) < 1 {
+		log.Fatalf("%s: at least one rule is required",
+			me)
 	}
+
+	svc := route53Client()
+	zoneList := listZones(svc)
+	zone := pickOrCreateZone(svc, dry, zoneList, zoneName, zoneID, vpcID, vpcRegion)
+
+	log.Printf("%s: found zone: zoneName=%s zoneID=%s",
+		me, aws.ToString(zone.Name), aws.ToString(zone.Id))
+
+	rrSets := listRecords(svc, zone.Id)
+	userSets := filterUserRecords(rrSets)
+
+	// show rules
+	log.Printf("%s: rules: %s", me, rules)
+
+	// show existing records
+	log.Printf("%s: existing records:", me)
+	for _, rrs := range userSets {
+		log.Printf("%s: dry=%t rrs: %s",
+			me, dry, printRRSet(rrs))
+	}
+
 }
 
 func purgeZone(dry bool, zoneName, zoneID string) {
@@ -68,7 +91,7 @@ func purgeZone(dry bool, zoneName, zoneID string) {
 
 	svc := route53Client()
 	zoneList := listZones(svc)
-	zone := pickZone(zoneList, zoneName, zoneID)
+	zone := mustPickZone(zoneList, zoneName, zoneID)
 
 	log.Printf("%s: found zone: zoneName=%s zoneID=%s",
 		me, aws.ToString(zone.Name), aws.ToString(zone.Id))
