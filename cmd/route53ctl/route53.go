@@ -41,6 +41,7 @@ func listRecords(svc *route53.Client, hostedZoneID *string) []types.ResourceReco
 	return rrsList
 }
 
+/*
 func filterUserRecords(sets []types.ResourceRecordSet) []types.ResourceRecordSet {
 	var list []types.ResourceRecordSet
 	for _, rrs := range sets {
@@ -51,6 +52,7 @@ func filterUserRecords(sets []types.ResourceRecordSet) []types.ResourceRecordSet
 	}
 	return list
 }
+*/
 
 func nonDeletable(rrs types.ResourceRecordSet) bool {
 	return rrs.Type == "SOA" || rrs.Type == "NS"
@@ -81,6 +83,18 @@ func deleteZoneRecords(svc *route53.Client, dry bool, zoneID *string) {
 	if len(changes) == 0 {
 		log.Printf("%s: no record to delete", me)
 		return
+	}
+
+	changeRecords(me, svc, dry, zoneID, changes)
+}
+
+func changeRecords(caller string, svc *route53.Client, dry bool,
+	zoneID *string, changes []types.Change) {
+
+	me := fmt.Sprintf("%s: changeRecords", caller)
+
+	if len(changes) == 0 {
+		log.Fatalf("%s: no change to apply", me)
 	}
 
 	batch := types.ChangeBatch{
@@ -302,4 +316,66 @@ func listZones(svc *route53.Client) []types.HostedZone {
 	log.Printf("listZones: found %d zone(s)", len(zoneList))
 
 	return zoneList
+}
+
+func updateRecords(svc *route53.Client, dry bool, zoneID *string,
+	rrSets []types.ResourceRecordSet, ruleList []rule) {
+
+	const me = "updateRecords"
+
+	// show rules
+	log.Printf("%s: rules: %v", me, ruleList)
+
+	// show existing records
+	log.Printf("%s: existing records:", me)
+	for _, rrs := range rrSets {
+		log.Printf("%s: dry=%t rrs: %s",
+			me, dry, printRRSet(rrs))
+	}
+
+	changes := calculateChanges(rrSets, ruleList)
+
+	for i, c := range changes {
+		log.Printf("%s: change %d/%d: %v", me, i+1, len(changes), c)
+	}
+
+	changeRecords(me, svc, dry, zoneID, changes)
+}
+
+func calculateChanges(rrSets []types.ResourceRecordSet, ruleList []rule) []types.Change {
+
+	const me = "calculateChanges"
+
+	var changes []types.Change
+
+	// 1 - upsert SOA from rrSet with low negative cache TTL
+
+	log.Fatal("TODO upsert SOA")
+
+	// 2 - delete resources that are in rrSets but not in ruleList
+
+	log.Fatal("TODO delete stale resources")
+
+	// 3 - upsert resources that are in ruleList
+
+	log.Fatalf("TODO upsert resources from rules: %v", ruleList)
+
+	for _, rrs := range rrSets {
+		log.Printf("%s: rrs: %s",
+			me, printRRSet(rrs))
+
+		switch rrs.Type {
+		case "NS":
+			continue // ignore
+		}
+
+		set := rrs
+		removeRRSet := types.Change{
+			Action:            types.ChangeActionDelete,
+			ResourceRecordSet: &set,
+		}
+		changes = append(changes, removeRRSet)
+	}
+
+	return changes
 }

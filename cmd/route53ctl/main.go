@@ -56,6 +56,11 @@ func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string, rules []string
 			me)
 	}
 
+	ruleList, err := parseRules(rules)
+	if err != nil {
+		log.Fatalf("%s: error parsing rule list: %v", me, err)
+	}
+
 	svc := route53Client()
 	zoneList := listZones(svc)
 	zone := pickOrCreateZone(svc, dry, zoneList, zoneName, zoneID, vpcID, vpcRegion)
@@ -64,17 +69,8 @@ func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string, rules []string
 		me, aws.ToString(zone.Name), aws.ToString(zone.Id))
 
 	rrSets := listRecords(svc, zone.Id)
-	userSets := filterUserRecords(rrSets)
 
-	// show rules
-	log.Printf("%s: rules: %s", me, rules)
-
-	// show existing records
-	log.Printf("%s: existing records:", me)
-	for _, rrs := range userSets {
-		log.Printf("%s: dry=%t rrs: %s",
-			me, dry, printRRSet(rrs))
-	}
+	updateRecords(svc, dry, zone.Id, rrSets, ruleList)
 
 }
 
