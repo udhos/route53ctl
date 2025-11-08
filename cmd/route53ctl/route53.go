@@ -350,8 +350,6 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 
 	const me = "calculateChanges"
 
-	log.Printf("%s: negative cache TTL: %d", me, negativeCacheTTL)
-
 	var changes []types.Change
 
 	// 1 - upsert SOA from rrSet with low negative cache TTL
@@ -385,7 +383,6 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 	// 3 - insert resources that are in ruleList
 
 	for i, r := range ruleList {
-		log.Printf("%s: insert %d/%d: %s", me, i+1, len(ruleList), r)
 		id := fmt.Sprint(i)
 		rrset := types.ResourceRecordSet{
 			Name:          aws.String(zoneName),
@@ -393,12 +390,17 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 			SetIdentifier: aws.String(id),
 			Weight:        aws.Int64(r.weight),
 		}
+
+		var target string // display only
+
 		if r.kind == "ip" {
 			// ip --> IN A --> IPs
 			// Set TTL
 			rrset.TTL = aws.Int64(ttl)
 			// Set resource records
 			rrset.ResourceRecords = r.solveIPValue()
+
+			target = printRecords(rrset.ResourceRecords) // display only
 		} else {
 			// vpce --> IN A (alias) --> vpce hostname
 			// Set Alias Target
@@ -407,7 +409,13 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 				HostedZoneId: aws.String(hostedZoneIDVpce),
 			}
 			rrset.AliasTarget = alias
+
+			target = r.value // display only
 		}
+
+		log.Printf("%s: insert %d/%d: %s --> %s",
+			me, i+1, len(ruleList), r, target)
+
 		insert := types.Change{
 			Action:            types.ChangeActionCreate,
 			ResourceRecordSet: &rrset,
@@ -454,6 +462,9 @@ func replaceNegativeCacheTTL(soa types.ResourceRecordSet, ttl int64) (types.Reso
 
 	fieldOld := value[index+1:]
 	fieldNew := fmt.Sprint(ttl)
+
+	log.Printf("%s: old=%s new=%s", me, fieldOld, fieldNew)
+
 	if fieldOld == fieldNew {
 		return soa, false
 	}
