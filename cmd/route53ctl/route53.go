@@ -41,19 +41,6 @@ func listRecords(svc *route53.Client, hostedZoneID *string) []types.ResourceReco
 	return rrsList
 }
 
-/*
-func filterUserRecords(sets []types.ResourceRecordSet) []types.ResourceRecordSet {
-	var list []types.ResourceRecordSet
-	for _, rrs := range sets {
-		if nonDeletable(rrs) {
-			continue // skip non-user records
-		}
-		list = append(list, rrs)
-	}
-	return list
-}
-*/
-
 func nonDeletable(rrs types.ResourceRecordSet) bool {
 	return rrs.Type == "SOA" || rrs.Type == "NS"
 }
@@ -64,20 +51,17 @@ func deleteZoneRecords(svc *route53.Client, dry bool, zoneID *string) {
 	var changes []types.Change
 
 	sets := listRecords(svc, zoneID)
-	for _, rrs := range sets {
-		log.Printf("%s: dry=%t rrs: %s",
-			me, dry, printRRSet(rrs))
 
-		if nonDeletable(rrs) {
-			continue
-		}
+	staleList := findStaleRecords(sets)
 
-		set := rrs
-		removeRRSet := types.Change{
+	for i, stale := range staleList {
+		log.Printf("%s: dry=%t will delete record %d/%d: %s",
+			me, dry, i+1, len(staleList), printRRSet(stale))
+		deleteStale := types.Change{
 			Action:            types.ChangeActionDelete,
-			ResourceRecordSet: &set,
+			ResourceRecordSet: &stale,
 		}
-		changes = append(changes, removeRRSet)
+		changes = append(changes, deleteStale)
 	}
 
 	if len(changes) == 0 {
@@ -377,7 +361,7 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 
 	staleList := findStaleRecords(rrSets)
 	for i, stale := range staleList {
-		log.Printf("%s: deleting stale record %d/%d: %s",
+		log.Printf("%s: will delete record %d/%d: %s",
 			me, i+1, len(staleList), printRRSet(stale))
 		deleteStale := types.Change{
 			Action:            types.ChangeActionDelete,
