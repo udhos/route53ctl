@@ -18,6 +18,7 @@ func main() {
 	var purge bool
 	var dry bool
 	var rules []string
+	var negativeCacheTTL int64
 
 	flag.StringVar(&zoneName, "zone", "", "Zone name")
 	flag.StringVar(&zoneID, "zoneID", "", "Zone ID (only needed if zone name is ambiguous)")
@@ -25,6 +26,7 @@ func main() {
 	flag.StringVar(&vpcRegion, "region", "sa-east-1", "VPC region")
 	flag.BoolVar(&purge, "purge", false, "Purge zone")
 	flag.BoolVar(&dry, "dry", true, "Dry run")
+	flag.Int64Var(&negativeCacheTTL, "nttl", 30, "negative cache TTL")
 	flag.Func("rule", "Add rule: -rule weight:ip:IP1,IP2,... OR -rule weight:vpce:hostname",
 		func(s string) error {
 			rules = append(rules, s)
@@ -41,11 +43,14 @@ func main() {
 	case purge:
 		purgeZone(dry, zoneName, zoneID)
 	default:
-		setZone(dry, zoneName, zoneID, vpcID, vpcRegion, rules)
+		setZone(dry, zoneName, zoneID, vpcID, vpcRegion, rules,
+			negativeCacheTTL)
 	}
 }
 
-func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string, rules []string) {
+func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string,
+	rules []string, negativeCacheTTL int64) {
+
 	const me = "setZone"
 
 	log.Printf("%s: dry=%t zoneName=%s zoneID=%s vpcID=%s vpcRegion=%s rules=%s",
@@ -70,7 +75,7 @@ func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string, rules []string
 
 	rrSets := listRecords(svc, zone.Id)
 
-	updateRecords(svc, dry, zone.Id, rrSets, ruleList)
+	updateRecords(svc, dry, zone.Id, rrSets, ruleList, negativeCacheTTL)
 
 }
 
