@@ -9,7 +9,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
+const version = "0.0.1"
+
 func main() {
+
+	log.Printf("route53ctl version %s", version)
 
 	var zoneName string
 	var zoneID string

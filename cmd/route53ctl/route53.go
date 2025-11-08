@@ -279,7 +279,13 @@ func createZone(svc *route53.Client, dry bool, zoneName, vpcID, vpcRegion string
 	var err error
 
 	if dry {
-		err = errors.New("dry run prevented zone creation ")
+		/*
+			id := "dry_run"
+			out = &route53.CreateHostedZoneOutput{
+				HostedZone: &types.HostedZone{Id: aws.String(id)},
+			}
+		*/
+		err = errors.New("dry run prevented zone creation")
 	} else {
 		out, err = svc.CreateHostedZone(context.TODO(), input)
 	}
