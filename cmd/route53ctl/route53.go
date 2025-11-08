@@ -354,45 +354,44 @@ func calculateChanges(rrSets []types.ResourceRecordSet, ruleList []rule,
 	// 1 - upsert SOA from rrSet with low negative cache TTL
 
 	if negativeCacheTTL > 0 {
-
 		soa := findSOA(rrSets)
-
 		soa = replaceNegativeCacheTTL(soa, negativeCacheTTL)
-
 		changeSOA := types.Change{
 			Action:            types.ChangeActionUpsert,
 			ResourceRecordSet: &soa,
 		}
-
 		changes = append(changes, changeSOA)
 	}
 
-	// 2 - delete resources that are in rrSets but not in ruleList
+	// 2 - delete existing records
 
-	log.Fatal("TODO delete stale resources")
+	staleList := findStaleRecords(rrSets)
+	for i, stale := range staleList {
+		log.Printf("%s: deleting stale record %d/%d: %s",
+			me, i+1, len(staleList), printRRSet(stale))
+		deleteStale := types.Change{
+			Action:            types.ChangeActionDelete,
+			ResourceRecordSet: &stale,
+		}
+		changes = append(changes, deleteStale)
+	}
 
 	// 3 - upsert resources that are in ruleList
 
-	log.Fatalf("TODO upsert resources from rules: %v", ruleList)
-
-	for _, rrs := range rrSets {
-		log.Printf("%s: rrs: %s",
-			me, printRRSet(rrs))
-
-		switch rrs.Type {
-		case "NS":
-			continue // ignore
-		}
-
-		set := rrs
-		removeRRSet := types.Change{
-			Action:            types.ChangeActionDelete,
-			ResourceRecordSet: &set,
-		}
-		changes = append(changes, removeRRSet)
-	}
+	log.Printf("TODO upsert resources from rules: %v", ruleList)
 
 	return changes
+}
+
+func findStaleRecords(rrSets []types.ResourceRecordSet) []types.ResourceRecordSet {
+	var list []types.ResourceRecordSet
+	for _, rrs := range rrSets {
+		if nonDeletable(rrs) {
+			continue
+		}
+		list = append(list, rrs)
+	}
+	return list
 }
 
 func findSOA(sets []types.ResourceRecordSet) types.ResourceRecordSet {
