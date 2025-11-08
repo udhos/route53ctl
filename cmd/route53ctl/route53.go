@@ -318,9 +318,11 @@ func listZones(svc *route53.Client) []types.HostedZone {
 	return zoneList
 }
 
-func updateRecords(svc *route53.Client, dry bool, zoneID *string,
+func updateRecords(svc *route53.Client, dry bool, zoneName,
+	hostedZoneIDVpce string,
+	zoneID *string,
 	rrSets []types.ResourceRecordSet, ruleList []rule,
-	negativeCacheTTL int64) {
+	ttl, negativeCacheTTL int64) {
 
 	const me = "updateRecords"
 
@@ -333,17 +335,18 @@ func updateRecords(svc *route53.Client, dry bool, zoneID *string,
 			me, i+1, len(rrSets), dry, printRRSet(rrs))
 	}
 
-	changes := calculateChanges(rrSets, ruleList, negativeCacheTTL)
+	changes := calculateChanges(zoneName, rrSets, ruleList, ttl,
+		negativeCacheTTL, hostedZoneIDVpce)
 
 	for i, c := range changes {
-		log.Printf("%s: change %d/%d: %v", me, i+1, len(changes), c)
+		log.Printf("%s: dry=%t change %d/%d: %v", me, dry, i+1, len(changes), c)
 	}
 
 	changeRecords(me, svc, dry, zoneID, changes)
 }
 
-func calculateChanges(rrSets []types.ResourceRecordSet, ruleList []rule,
-	negativeCacheTTL int64) []types.Change {
+func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleList []rule,
+	ttl, negativeCacheTTL int64, hostedZoneIDVpce string) []types.Change {
 
 	const me = "calculateChanges"
 
@@ -355,12 +358,15 @@ func calculateChanges(rrSets []types.ResourceRecordSet, ruleList []rule,
 
 	if negativeCacheTTL > 0 {
 		soa := findSOA(rrSets)
-		soa = replaceNegativeCacheTTL(soa, negativeCacheTTL)
-		changeSOA := types.Change{
-			Action:            types.ChangeActionUpsert,
-			ResourceRecordSet: &soa,
+		var changed bool
+		soa, changed = replaceNegativeCacheTTL(soa, negativeCacheTTL)
+		if changed {
+			changeSOA := types.Change{
+				Action:            types.ChangeActionUpsert,
+				ResourceRecordSet: &soa,
+			}
+			changes = append(changes, changeSOA)
 		}
-		changes = append(changes, changeSOA)
 	}
 
 	// 2 - delete existing records
@@ -376,9 +382,38 @@ func calculateChanges(rrSets []types.ResourceRecordSet, ruleList []rule,
 		changes = append(changes, deleteStale)
 	}
 
-	// 3 - upsert resources that are in ruleList
+	// 3 - insert resources that are in ruleList
 
-	log.Printf("TODO upsert resources from rules: %v", ruleList)
+	for i, r := range ruleList {
+		log.Printf("%s: insert %d/%d: %s", me, i+1, len(ruleList), r)
+		id := fmt.Sprint(i)
+		rrset := types.ResourceRecordSet{
+			Name:          aws.String(zoneName),
+			Type:          types.RRTypeA,
+			SetIdentifier: aws.String(id),
+			Weight:        aws.Int64(r.weight),
+		}
+		if r.kind == "ip" {
+			// ip --> IN A --> IPs
+			// Set TTL
+			rrset.TTL = aws.Int64(ttl)
+			// Set resource records
+			rrset.ResourceRecords = r.solveIPValue()
+		} else {
+			// vpce --> IN A (alias) --> vpce hostname
+			// Set Alias Target
+			alias := &types.AliasTarget{
+				DNSName:      aws.String(r.value),
+				HostedZoneId: aws.String(hostedZoneIDVpce),
+			}
+			rrset.AliasTarget = alias
+		}
+		insert := types.Change{
+			Action:            types.ChangeActionCreate,
+			ResourceRecordSet: &rrset,
+		}
+		changes = append(changes, insert)
+	}
 
 	return changes
 }
@@ -406,7 +441,7 @@ func findSOA(sets []types.ResourceRecordSet) types.ResourceRecordSet {
 	return types.ResourceRecordSet{}
 }
 
-func replaceNegativeCacheTTL(soa types.ResourceRecordSet, ttl int64) types.ResourceRecordSet {
+func replaceNegativeCacheTTL(soa types.ResourceRecordSet, ttl int64) (types.ResourceRecordSet, bool) {
 	const me = "replaceNegativeCacheTTL"
 	if len(soa.ResourceRecords) != 1 {
 		log.Fatalf("%s: non-unitary records: %d", me, len(soa.ResourceRecords))
@@ -416,9 +451,17 @@ func replaceNegativeCacheTTL(soa types.ResourceRecordSet, ttl int64) types.Resou
 	if index < 2 {
 		log.Fatalf("%s: last field not found: %s", me, value)
 	}
-	newValue := value[:index] + " " + fmt.Sprint(ttl)
+
+	fieldOld := value[index+1:]
+	fieldNew := fmt.Sprint(ttl)
+	if fieldOld == fieldNew {
+		return soa, false
+	}
+
+	newValue := value[:index] + " " + fieldNew
 	log.Printf("%s: old=%s", me, value)
 	log.Printf("%s: new=%s", me, newValue)
 	soa.ResourceRecords[0].Value = &newValue
-	return soa
+
+	return soa, true
 }

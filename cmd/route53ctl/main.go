@@ -18,6 +18,7 @@ func main() {
 	var purge bool
 	var dry bool
 	var rules []string
+	var ttl int64
 	var negativeCacheTTL int64
 
 	flag.StringVar(&zoneName, "zone", "", "Zone name")
@@ -26,6 +27,7 @@ func main() {
 	flag.StringVar(&vpcRegion, "region", "sa-east-1", "VPC region")
 	flag.BoolVar(&purge, "purge", false, "Purge zone")
 	flag.BoolVar(&dry, "dry", true, "Dry run")
+	flag.Int64Var(&ttl, "ttl", 60, "TTL")
 	flag.Int64Var(&negativeCacheTTL, "nttl", 30, "negative cache TTL")
 	flag.Func("rule", "Add rule: -rule weight:ip:IP1,IP2,... OR -rule weight:vpce:hostname",
 		func(s string) error {
@@ -44,17 +46,29 @@ func main() {
 		purgeZone(dry, zoneName, zoneID)
 	default:
 		setZone(dry, zoneName, zoneID, vpcID, vpcRegion, rules,
-			negativeCacheTTL)
+			ttl, negativeCacheTTL)
 	}
 }
 
+// https://github.com/kubernetes-sigs/external-dns/issues/3429
+var hostedZoneIDVpceTable = map[string]string{
+	"sa-east-1": "Z2LXUWEVLCVZIB",
+	"us-east-1": "Z7HUB22UULQXV",
+}
+
 func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string,
-	rules []string, negativeCacheTTL int64) {
+	rules []string, ttl, negativeCacheTTL int64) {
 
 	const me = "setZone"
 
 	log.Printf("%s: dry=%t zoneName=%s zoneID=%s vpcID=%s vpcRegion=%s rules=%s",
 		me, dry, zoneName, zoneID, vpcID, vpcRegion, rules)
+
+	hosteZoneIDVpce, found := hostedZoneIDVpceTable[vpcRegion]
+	if !found {
+		log.Fatalf("%s: unknown zone ID for VPCE at region=%s: known regions: %s",
+			me, vpcRegion, hostedZoneIDVpceTable)
+	}
 
 	if len(rules) < 1 {
 		log.Fatalf("%s: at least one rule is required",
@@ -68,14 +82,16 @@ func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string,
 
 	svc := route53Client()
 	zoneList := listZones(svc)
-	zone := pickOrCreateZone(svc, dry, zoneList, zoneName, zoneID, vpcID, vpcRegion)
+	zone := pickOrCreateZone(svc, dry, zoneList, zoneName, zoneID, vpcID,
+		vpcRegion)
 
 	log.Printf("%s: found zone: zoneName=%s zoneID=%s",
 		me, aws.ToString(zone.Name), aws.ToString(zone.Id))
 
 	rrSets := listRecords(svc, zone.Id)
 
-	updateRecords(svc, dry, zone.Id, rrSets, ruleList, negativeCacheTTL)
+	updateRecords(svc, dry, zoneName, hosteZoneIDVpce, zone.Id, rrSets, ruleList,
+		ttl, negativeCacheTTL)
 
 }
 

@@ -2,8 +2,13 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"net"
 	"strconv"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 )
 
 /*
@@ -14,6 +19,25 @@ type rule struct {
 	weight int64
 	kind   string // ip or vpce
 	value  string
+}
+
+func (r rule) solveIPValue() []types.ResourceRecord {
+	const me = "rule.solveIPValue"
+	var list []types.ResourceRecord
+	fields := strings.Split(r.value, ",")
+	for _, v := range fields {
+		addrs, err := net.LookupHost(v)
+		if err != nil {
+			log.Fatalf("%s: error rule=%s host=%s: %v", me, r, v, err)
+		}
+		for _, addr := range addrs {
+			rec := types.ResourceRecord{
+				Value: aws.String(addr),
+			}
+			list = append(list, rec)
+		}
+	}
+	return list
 }
 
 func (r rule) String() string {
