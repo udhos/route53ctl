@@ -349,9 +349,9 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 	// 1 - upsert SOA from rrSet with low negative cache TTL
 
 	if negativeCacheTTL > 0 {
-		soa := findSOA(rrSets)
+		soa := findRecord(rrSets, "SOA")
 		var changed bool
-		soa, changed = replaceNegativeCacheTTL(soa, negativeCacheTTL)
+		soa, changed = replaceNegativeCacheTTL(soa, negativeCacheTTL, ttl)
 		if changed {
 			changeSOA := types.Change{
 				Action:            types.ChangeActionUpsert,
@@ -361,7 +361,19 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 		}
 	}
 
-	// 2 - delete existing records
+	// 2 - upsert NS with low TTL
+
+	ns := findRecord(rrSets, "NS")
+	if *ns.TTL != ttl {
+		ns.TTL = &ttl
+		changeNS := types.Change{
+			Action:            types.ChangeActionUpsert,
+			ResourceRecordSet: &ns,
+		}
+		changes = append(changes, changeNS)
+	}
+
+	// 3 - delete existing records
 
 	staleList := findStaleRecords(rrSets)
 	for i, stale := range staleList {
@@ -374,7 +386,7 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 		changes = append(changes, deleteStale)
 	}
 
-	// 3 - insert resources that are in ruleList
+	// 4 - insert resources that are in ruleList
 
 	for i, r := range ruleList {
 		id := fmt.Sprint(i)
@@ -431,19 +443,19 @@ func findStaleRecords(rrSets []types.ResourceRecordSet) []types.ResourceRecordSe
 	return list
 }
 
-func findSOA(sets []types.ResourceRecordSet) types.ResourceRecordSet {
-	const me = "findSOA"
+func findRecord(sets []types.ResourceRecordSet, recType types.RRType) types.ResourceRecordSet {
+	const me = "findRecord"
 	for _, rrs := range sets {
-		if rrs.Type == "SOA" {
-			log.Printf("%s: found SOA: %s", me, printRRSet(rrs))
+		if rrs.Type == recType {
+			log.Printf("%s: found %s: %s", me, recType, printRRSet(rrs))
 			return rrs
 		}
 	}
-	log.Fatalf("%s: error: could not find SOA record", me)
+	log.Fatalf("%s: error: could not find %s record", me, recType)
 	return types.ResourceRecordSet{}
 }
 
-func replaceNegativeCacheTTL(soa types.ResourceRecordSet, ttl int64) (types.ResourceRecordSet, bool) {
+func replaceNegativeCacheTTL(soa types.ResourceRecordSet, nttl, ttl int64) (types.ResourceRecordSet, bool) {
 	const me = "replaceNegativeCacheTTL"
 	if len(soa.ResourceRecords) != 1 {
 		log.Fatalf("%s: non-unitary records: %d", me, len(soa.ResourceRecords))
@@ -455,11 +467,12 @@ func replaceNegativeCacheTTL(soa types.ResourceRecordSet, ttl int64) (types.Reso
 	}
 
 	fieldOld := value[index+1:]
-	fieldNew := fmt.Sprint(ttl)
+	fieldNew := fmt.Sprint(nttl)
 
-	log.Printf("%s: old=%s new=%s", me, fieldOld, fieldNew)
+	log.Printf("%s: negativeOld=%s negativeNew=%s ttlOld=%v ttlNew=%v",
+		me, fieldOld, fieldNew, *soa.TTL, ttl)
 
-	if fieldOld == fieldNew {
+	if fieldOld == fieldNew && *soa.TTL == ttl {
 		return soa, false
 	}
 
@@ -467,6 +480,7 @@ func replaceNegativeCacheTTL(soa types.ResourceRecordSet, ttl int64) (types.Reso
 	log.Printf("%s: old=%s", me, value)
 	log.Printf("%s: new=%s", me, newValue)
 	soa.ResourceRecords[0].Value = &newValue
+	soa.TTL = &ttl
 
 	return soa, true
 }

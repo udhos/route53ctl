@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-const version = "0.0.3"
+const version = "0.0.4"
 
 func main() {
 
@@ -32,8 +32,8 @@ func main() {
 	flag.StringVar(&vpcRegion, "region", "sa-east-1", "VPC region")
 	flag.BoolVar(&purge, "purge", false, "Purge zone")
 	flag.BoolVar(&dry, "dry", true, "Dry run")
-	flag.Int64Var(&ttl, "ttl", 30, "TTL")
-	flag.Int64Var(&negativeCacheTTL, "nttl", 30, "negative cache TTL")
+	flag.Int64Var(&ttl, "ttl", 44, "TTL")
+	flag.Int64Var(&negativeCacheTTL, "nttl", 33, "negative cache TTL")
 	flag.Func("rule", "Add rule: -rule weight:ip:IP1,IP2,... OR -rule weight:vpce:hostname",
 		func(s string) error {
 			rules = append(rules, s)
