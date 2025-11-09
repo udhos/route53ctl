@@ -5,11 +5,12 @@ import (
 	"flag"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-const version = "0.0.2"
+const version = "0.0.3"
 
 func main() {
 
@@ -31,7 +32,7 @@ func main() {
 	flag.StringVar(&vpcRegion, "region", "sa-east-1", "VPC region")
 	flag.BoolVar(&purge, "purge", false, "Purge zone")
 	flag.BoolVar(&dry, "dry", true, "Dry run")
-	flag.Int64Var(&ttl, "ttl", 60, "TTL")
+	flag.Int64Var(&ttl, "ttl", 30, "TTL")
 	flag.Int64Var(&negativeCacheTTL, "nttl", 30, "negative cache TTL")
 	flag.Func("rule", "Add rule: -rule weight:ip:IP1,IP2,... OR -rule weight:vpce:hostname",
 		func(s string) error {
@@ -86,7 +87,7 @@ func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string,
 
 	svc := route53Client()
 	zoneList := listZones(svc)
-	zone := pickOrCreateZone(svc, dry, zoneList, zoneName, zoneID, vpcID,
+	zone, zoneCreation := pickOrCreateZone(svc, dry, zoneList, zoneName, zoneID, vpcID,
 		vpcRegion)
 
 	log.Printf("%s: found zone: zoneName=%s zoneID=%s",
@@ -96,6 +97,12 @@ func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string,
 
 	updateRecords(svc, dry, zoneName, hosteZoneIDVpce, zone.Id, rrSets, ruleList,
 		ttl, negativeCacheTTL)
+
+	if !zoneCreation.IsZero() {
+		elap := time.Since(zoneCreation)
+		log.Printf("%s: time elapsed between zone creation and records creation: %v",
+			me, elap)
+	}
 
 }
 

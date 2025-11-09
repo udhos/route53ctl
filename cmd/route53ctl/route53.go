@@ -224,17 +224,18 @@ func mustPickZone(zoneList []types.HostedZone, zoneName,
 }
 
 func pickOrCreateZone(svc *route53.Client, dry bool, zoneList []types.HostedZone,
-	zoneName, zoneID, vpcID, vpcRegion string) types.HostedZone {
+	zoneName, zoneID, vpcID, vpcRegion string) (types.HostedZone, time.Time) {
 
 	z, err := pickZone(zoneList, zoneName, zoneID)
 	if err == nil {
-		return z
+		return z, time.Time{}
 	}
 
 	return createZone(svc, dry, zoneName, vpcID, vpcRegion)
 }
 
-func createZone(svc *route53.Client, dry bool, zoneName, vpcID, vpcRegion string) types.HostedZone {
+func createZone(svc *route53.Client, dry bool, zoneName, vpcID,
+	vpcRegion string) (types.HostedZone, time.Time) {
 
 	const me = "createZone"
 
@@ -259,8 +260,11 @@ func createZone(svc *route53.Client, dry bool, zoneName, vpcID, vpcRegion string
 		VPC:             &vpc,
 	}
 
+	var zoneCreation time.Time
 	var out *route53.CreateHostedZoneOutput
 	var err error
+
+	zoneCreation = time.Now()
 
 	if dry {
 		/*
@@ -281,7 +285,7 @@ func createZone(svc *route53.Client, dry bool, zoneName, vpcID, vpcRegion string
 	log.Printf("%s: zone created: zoneName=%s vpcID=%s vpcRegion=%s zoneID=%s",
 		me, zoneName, vpcID, vpcRegion, aws.ToString(out.HostedZone.Id))
 
-	return *out.HostedZone
+	return *out.HostedZone, zoneCreation
 }
 
 func listZones(svc *route53.Client) []types.HostedZone {
@@ -388,7 +392,7 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 			// Set TTL
 			rrset.TTL = aws.Int64(ttl)
 			// Set resource records
-			rrset.ResourceRecords = r.solveIPValue()
+			rrset.ResourceRecords = r.records
 
 			target = printRecords(rrset.ResourceRecords) // display only
 		} else {

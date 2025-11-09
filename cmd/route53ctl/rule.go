@@ -16,9 +16,10 @@ flag.Func("rule", "Add rule: -rule weight:ip:IP1,IP2,... OR -rule weight:vpce:ho
 */
 
 type rule struct {
-	weight int64
-	kind   string // ip or vpce
-	value  string
+	weight  int64
+	kind    string // ip or vpce
+	value   string
+	records []types.ResourceRecord // only for ip
 }
 
 func (r rule) solveIPValue() []types.ResourceRecord {
@@ -63,6 +64,11 @@ func parseRule(s string) (rule, error) {
 	}
 	r.weight = w
 	r.value = fields[2]
+
+	if r.kind == "ip" {
+		r.records = r.solveIPValue()
+	}
+
 	return r, nil
 }
 
