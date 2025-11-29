@@ -312,10 +312,8 @@ func listZones(svc *route53.Client) []types.HostedZone {
 	return zoneList
 }
 
-func updateRecords(svc *route53.Client, dry bool, zoneName,
-	hostedZoneIDVpce string,
-	zoneID *string,
-	rrSets []types.ResourceRecordSet, ruleList []rule,
+func updateRecords(svc *route53.Client, dry bool, zoneName string,
+	zoneID *string, rrSets []types.ResourceRecordSet, ruleList []rule,
 	ttl, negativeCacheTTL int64) {
 
 	const me = "updateRecords"
@@ -330,17 +328,18 @@ func updateRecords(svc *route53.Client, dry bool, zoneName,
 	}
 
 	changes := calculateChanges(zoneName, rrSets, ruleList, ttl,
-		negativeCacheTTL, hostedZoneIDVpce)
+		negativeCacheTTL)
 
 	for i, c := range changes {
-		log.Printf("%s: dry=%t change %d/%d: %v", me, dry, i+1, len(changes), c)
+		log.Printf("%s: dry=%t change %d/%d: %v",
+			me, dry, i+1, len(changes), c)
 	}
 
 	changeRecords(me, svc, dry, zoneID, changes)
 }
 
-func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleList []rule,
-	ttl, negativeCacheTTL int64, hostedZoneIDVpce string) []types.Change {
+func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet,
+	ruleList []rule, ttl, negativeCacheTTL int64) []types.Change {
 
 	const me = "calculateChanges"
 
@@ -412,7 +411,7 @@ func calculateChanges(zoneName string, rrSets []types.ResourceRecordSet, ruleLis
 			// Set Alias Target
 			alias := &types.AliasTarget{
 				DNSName:      aws.String(r.value),
-				HostedZoneId: aws.String(hostedZoneIDVpce),
+				HostedZoneId: aws.String(r.vpceHostedZoneID),
 			}
 			rrset.AliasTarget = alias
 

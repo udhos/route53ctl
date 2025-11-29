@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-const version = "0.0.4"
+const version = "0.0.5"
 
 func main() {
 
@@ -29,7 +29,7 @@ func main() {
 	flag.StringVar(&zoneName, "zone", "", "Zone name")
 	flag.StringVar(&zoneID, "zoneID", "", "Zone ID (only needed if zone name is ambiguous)")
 	flag.StringVar(&vpcID, "vpc", "", "VPC ID")
-	flag.StringVar(&vpcRegion, "region", "sa-east-1", "VPC region")
+	flag.StringVar(&vpcRegion, "vpcRegion", "sa-east-1", "VPC region")
 	flag.BoolVar(&purge, "purge", false, "Purge zone")
 	flag.BoolVar(&dry, "dry", true, "Dry run")
 	flag.Int64Var(&ttl, "ttl", 44, "TTL")
@@ -55,12 +55,6 @@ func main() {
 	}
 }
 
-// https://github.com/kubernetes-sigs/external-dns/issues/3429
-var hostedZoneIDVpceTable = map[string]string{
-	"sa-east-1": "Z2LXUWEVLCVZIB",
-	"us-east-1": "Z7HUB22UULQXV",
-}
-
 func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string,
 	rules []string, ttl, negativeCacheTTL int64) {
 
@@ -68,12 +62,6 @@ func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string,
 
 	log.Printf("%s: dry=%t zoneName=%s zoneID=%s vpcID=%s vpcRegion=%s rules=%s",
 		me, dry, zoneName, zoneID, vpcID, vpcRegion, rules)
-
-	hosteZoneIDVpce, found := hostedZoneIDVpceTable[vpcRegion]
-	if !found {
-		log.Fatalf("%s: unknown zone ID for VPCE at region=%s: known regions: %s",
-			me, vpcRegion, hostedZoneIDVpceTable)
-	}
 
 	if len(rules) < 1 {
 		log.Fatalf("%s: at least one rule is required",
@@ -95,7 +83,7 @@ func setZone(dry bool, zoneName, zoneID, vpcID, vpcRegion string,
 
 	rrSets := listRecords(svc, zone.Id)
 
-	updateRecords(svc, dry, zoneName, hosteZoneIDVpce, zone.Id, rrSets, ruleList,
+	updateRecords(svc, dry, zoneName, zone.Id, rrSets, ruleList,
 		ttl, negativeCacheTTL)
 
 	if !zoneCreation.IsZero() {

@@ -16,10 +16,11 @@ flag.Func("rule", "Add rule: -rule weight:ip:IP1,IP2,... OR -rule weight:vpce:ho
 */
 
 type rule struct {
-	weight  int64
-	kind    string // ip or vpce
-	value   string
-	records []types.ResourceRecord // only for ip
+	weight           int64
+	kind             string // ip or vpce
+	value            string
+	records          []types.ResourceRecord // only for ip
+	vpceHostedZoneID string                 // only for vpce
 }
 
 func (r rule) solveIPValue() []types.ResourceRecord {
@@ -39,6 +40,25 @@ func (r rule) solveIPValue() []types.ResourceRecord {
 		}
 	}
 	return list
+}
+
+func (r rule) solveVPCEndpointZoneID() string {
+
+	const me = "rule.solveVPCEndpointZoneID"
+
+	region, err := getRegionFromVpceHostname(r.value)
+	if err != nil {
+		log.Fatalf("%s: error getting region from VPCE hostname=%s: %v",
+			me, r.value, err)
+	}
+
+	hosteZoneIDVpce, found := hostedZoneIDVpceTable[region]
+	if !found {
+		log.Fatalf("%s: unknown zone ID for VPCE at region=%s: known regions: %s",
+			me, region, hostedZoneIDVpceTable)
+	}
+
+	return hosteZoneIDVpce
 }
 
 func (r rule) String() string {
@@ -65,8 +85,11 @@ func parseRule(s string) (rule, error) {
 	r.weight = w
 	r.value = fields[2]
 
-	if r.kind == "ip" {
+	switch r.kind {
+	case "ip":
 		r.records = r.solveIPValue()
+	case "vpce":
+		r.vpceHostedZoneID = r.solveVPCEndpointZoneID()
 	}
 
 	return r, nil
